@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  supermemory:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - SM_DB_PATH=/app/data/memory.db
+      - SM_HOST=0.0.0.0
+      - SM_PORT=8000
+      - SM_LOG_LEVEL=info
+      - SM_AUTO_BACKUP=true
+      - SM_SIMILARITY_THRESHOLD=0.7
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Add a reverse proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/ssl/certs
+    depends_on:
+      - supermemory
+    restart: unless-stopped
+    profiles: ["with-nginx"]
+
+volumes:
+  memory_data:
+    driver: local
+  logs:
+    driver: local

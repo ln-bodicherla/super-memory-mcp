@@ -1,0 +1,214 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "SuperMemory MCP Server Infrastructure",
+  "Parameters": {
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id",
+      "Description": "VPC ID for the infrastructure"
+    },
+    "SubnetIds": {
+      "Type": "List<AWS::EC2::Subnet::Id>",
+      "Description": "Subnet IDs for ECS tasks (at least 2 in different AZs)"
+    },
+    "ImageUri": {
+      "Type": "String",
+      "Description": "ECR image URI for SuperMemory"
+    }
+  },
+  "Resources": {
+    "ECSCluster": {
+      "Type": "AWS::ECS::Cluster",
+      "Properties": {
+        "ClusterName": "supermemory-cluster"
+      }
+    },
+    "LoadBalancer": {
+      "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      "Properties": {
+        "Name": "supermemory-alb",
+        "Scheme": "internet-facing",
+        "Type": "application",
+        "Subnets": {"Ref": "SubnetIds"},
+        "SecurityGroups": [{"Ref": "LoadBalancerSecurityGroup"}]
+      }
+    },
+    "TargetGroup": {
+      "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+      "Properties": {
+        "Name": "supermemory-tg",
+        "Port": 8000,
+        "Protocol": "HTTP",
+        "VpcId": {"Ref": "VpcId"},
+        "TargetType": "ip",
+        "HealthCheckPath": "/health",
+        "HealthCheckProtocol": "HTTP",
+        "HealthCheckIntervalSeconds": 30,
+        "HealthyThresholdCount": 2,
+        "UnhealthyThresholdCount": 5
+      }
+    },
+    "LoadBalancerListener": {
+      "Type": "AWS::ElasticLoadBalancingV2::Listener",
+      "Properties": {
+        "DefaultActions": [
+          {
+            "Type": "forward",
+            "TargetGroupArn": {"Ref": "TargetGroup"}
+          }
+        ],
+        "LoadBalancerArn": {"Ref": "LoadBalancer"},
+        "Port": 80,
+        "Protocol": "HTTP"
+      }
+    },
+    "ECSTaskDefinition": {
+      "Type": "AWS::ECS::TaskDefinition",
+      "Properties": {
+        "Family": "supermemory-task",
+        "NetworkMode": "awsvpc",
+        "RequiresCompatibilities": ["FARGATE"],
+        "Cpu": 512,
+        "Memory": 1024,
+        "ExecutionRoleArn": {"Ref": "ECSExecutionRole"},
+        "TaskRoleArn": {"Ref": "ECSTaskRole"},
+        "ContainerDefinitions": [
+          {
+            "Name": "supermemory",
+            "Image": {"Ref": "ImageUri"},
+            "PortMappings": [
+              {
+                "ContainerPort": 8000,
+                "Protocol": "tcp"
+              }
+            ],
+            "Environment": [
+              {"Name": "SM_HOST", "Value": "0.0.0.0"},
+              {"Name": "SM_PORT", "Value": "8000"},
+              {"Name": "SM_LOG_LEVEL", "Value": "info"}
+            ],
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {"Ref": "CloudWatchLogGroup"},
+                "awslogs-region": {"Ref": "AWS::Region"},
+                "awslogs-stream-prefix": "ecs"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "ECSService": {
+      "Type": "AWS::ECS::Service",
+      "DependsOn": "LoadBalancerListener",
+      "Properties": {
+        "ServiceName": "supermemory-service",
+        "Cluster": {"Ref": "ECSCluster"},
+        "TaskDefinition": {"Ref": "ECSTaskDefinition"},
+        "DesiredCount": 2,
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": {"Ref": "SubnetIds"},
+            "SecurityGroups": [{"Ref": "ECSSecurityGroup"}],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "LoadBalancers": [
+          {
+            "TargetGroupArn": {"Ref": "TargetGroup"},
+            "ContainerName": "supermemory",
+            "ContainerPort": 8000
+          }
+        ],
+        "HealthCheckGracePeriodSeconds": 60
+      }
+    },
+    "CloudWatchLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": "/ecs/supermemory",
+        "RetentionInDays": 30
+      }
+    },
+    "ECSExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"Service": "ecs-tasks.amazonaws.com"},
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+        ]
+      }
+    },
+    "ECSTaskRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"Service": "ecs-tasks.amazonaws.com"},
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+      }
+    },
+    "LoadBalancerSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Security group for SuperMemory ALB",
+        "VpcId": {"Ref": "VpcId"},
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 80,
+            "ToPort": 80,
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp", 
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+    "ECSSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Security group for SuperMemory ECS tasks",
+        "VpcId": {"Ref": "VpcId"},
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 8000,
+            "ToPort": 8000,
+            "SourceSecurityGroupId": {"Ref": "LoadBalancerSecurityGroup"}
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "LoadBalancerDNS": {
+      "Description": "DNS name of the load balancer",
+      "Value": {"Fn::GetAtt": ["LoadBalancer", "DNSName"]}
+    },
+    "ClusterName": {
+      "Description": "ECS Cluster name",
+      "Value": {"Ref": "ECSCluster"}
+    }
+  }
+}
