@@ -7,11 +7,9 @@ A **Model Context Protocol (MCP)** server that provides centralized memory capab
 - **🔗 MCP Compliant**: Implements the Model Context Protocol standard for universal LLM integration
 - **🧠 Vector-Based Memory**: Uses FAISS for fast semantic similarity search
 - **📊 Hybrid Storage**: Combines vector embeddings (FAISS) with metadata storage (SQLite)
-- **🚀 High Performance**: Optimized for low-latency memory operations
-- **🔒 Secure**: Local storage with optional encryption
+- **🔒 Local Storage**: Data stays on the local machine (SQLite and FAISS files); no encryption or authentication is built in
 - **🐳 Cloud Ready**: Docker and AWS ECS deployment configurations
 - **🌐 Multi-Protocol**: Both MCP and HTTP/REST API access
-- **📈 Scalable**: Handles thousands of memories with sub-second search
 
 ## 🏗️ Architecture
 
@@ -36,10 +34,10 @@ A **Model Context Protocol (MCP)** server that provides centralized memory capab
 
 ### Local Installation
 
-1. **Extract and setup**:
+1. **Clone and set up**:
 ```bash
-unzip supermemory-mcp-complete.zip
-cd supermemory-mcp/
+git clone https://github.com/ln-bodicherla/super-memory-mcp.git
+cd super-memory-mcp/
 chmod +x setup.sh
 ./setup.sh
 ```
@@ -122,6 +120,8 @@ curl -X POST http://localhost:8000/search \
 
 ### Claude Desktop Integration
 
+Note: the MCP tool handlers are defined in `super_memory_mcp_server.py`, but `main()` currently starts only the HTTP API on port 8000 and does not serve MCP over stdio, so this configuration will not work until a stdio entry point is added.
+
 Add to your Claude Desktop configuration:
 
 ```json
@@ -142,6 +142,8 @@ Add to your Claude Desktop configuration:
 ## ⚙️ Configuration
 
 ### Environment Variables
+
+`config.py` reads these variables, but `super_memory_mcp_server.py` does not use `config.py` yet, so the server currently runs with its built-in defaults.
 
 ```bash
 # Database configuration
@@ -198,21 +200,14 @@ python examples.py
 
 ## 📊 Performance
 
-### Benchmarks
-
-- **Storage**: ~1,000 memories/second
-- **Search**: <100ms for 10,000 memories
-- **Memory Usage**: ~50MB base + ~1KB per memory
-- **Disk Usage**: ~2KB per memory (including embeddings)
+Performance has not been benchmarked; no throughput, latency or memory figures are published. Search uses an exact FAISS `IndexFlatIP` index over `all-MiniLM-L6-v2` embeddings, so search time grows linearly with the number of stored memories.
 
 ## 🔒 Security
 
 ### Data Protection
 
 - **Local Storage**: All data stored locally by default
-- **Encryption**: Optional database encryption
-- **Access Control**: HTTP API supports authentication middleware
-- **Network Security**: HTTPS/TLS support in production deployments
+- **No built-in encryption, authentication or TLS**: the HTTP API is unauthenticated and binds to `0.0.0.0:8000`; put it behind a reverse proxy with auth and TLS, or bind it to localhost, before exposing it on a network
 
 ## 📝 API Reference
 
